@@ -19,6 +19,8 @@
  */
 
 #include "Arena.h"
+#define BOOST_ASIO_HAS_IO_URING
+#define BOOST_ASIO_DISABLE_EPOLL
 #include "boost/asio.hpp"
 
 #include "flow/network.h"
