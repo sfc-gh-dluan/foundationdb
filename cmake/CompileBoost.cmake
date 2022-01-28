@@ -116,14 +116,19 @@ endif()
 find_package(Boost 1.78.0 EXACT QUIET COMPONENTS context CONFIG PATHS ${BOOST_HINT_PATHS})
 set(FORCE_BOOST_BUILD OFF CACHE BOOL "Forces cmake to build boost and ignores any installed boost")
 
+
+set(LibUring_ROOT "/home/teleport-dluan/liburing/src/include")
+
+# find_package(LibUring)
+
 if(Boost_FOUND AND NOT FORCE_BOOST_BUILD)
   add_library(boost_target INTERFACE)
   target_link_libraries(boost_target INTERFACE Boost::boost Boost::context)
-  target_link_libraries(boost_target uring)
-  target_compile_definitions(boost_target PRIVATE BOOST_ASIO_HAS_IO_URING=1 BOOST_ASIO_DISABLE_EPOLL=1)
 elseif(WIN32)
   message(FATAL_ERROR "Could not find Boost")
 else()
+message(STATUS "liburing boost")
+
   if(FORCE_BOOST_BUILD)
     message(STATUS "Compile boost because FORCE_BOOST_BUILD is set")
   else()
@@ -131,3 +136,9 @@ else()
   endif()
   compile_boost(TARGET boost_target)
 endif()
+
+
+find_package(LibUring)
+target_link_libraries(boost_target INTERFACE LibUring)
+target_compile_definitions(boost_target INTERFACE BOOST_ASIO_HAS_IO_URING=1 BOOST_ASIO_DISABLE_EPOLL=1)
+message(STATUS "liburing boost")

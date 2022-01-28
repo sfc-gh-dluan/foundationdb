@@ -24,8 +24,8 @@
 #define BOOST_SYSTEM_NO_LIB
 #define BOOST_DATE_TIME_NO_LIB
 #define BOOST_REGEX_NO_LIB
-#define BOOST_ASIO_HAS_IO_URING
-#define BOOST_ASIO_DISABLE_EPOLL
+// #define BOOST_ASIO_HAS_IO_URING
+// #define BOOST_ASIO_DISABLE_EPOLL
 #include "boost/asio.hpp"
 
 class ThreadPool final : public IThreadPool, public ReferenceCounted<ThreadPool> {

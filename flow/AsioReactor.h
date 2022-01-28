@@ -22,8 +22,8 @@
 #define FLOW_ASIOREACTOR_H
 #pragma once
 
-#define BOOST_ASIO_HAS_IO_URING
-#define BOOST_ASIO_DISABLE_EPOLL
+// #define BOOST_ASIO_HAS_IO_URING
+// #define BOOST_ASIO_DISABLE_EPOLL
 #include <boost/asio.hpp>
 #include <boost/bind/bind.hpp>
 

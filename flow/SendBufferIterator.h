@@ -22,8 +22,8 @@
 #define __SENDBUFFER_ITERATOR_H__
 
 #include "flow/serialize.h"
-#define BOOST_ASIO_HAS_IO_URING
-#define BOOST_ASIO_DISABLE_EPOLL
+// #define BOOST_ASIO_HAS_IO_URING
+// #define BOOST_ASIO_DISABLE_EPOLL
 #include <boost/asio.hpp>
 
 class SendBufferIterator {

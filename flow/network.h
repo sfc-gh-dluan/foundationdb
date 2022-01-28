@@ -29,8 +29,8 @@
 #include <stdint.h>
 #include <variant>
 #include <atomic>
-#define BOOST_ASIO_HAS_IO_URING
-#define BOOST_ASIO_DISABLE_EPOLL
+// #define BOOST_ASIO_HAS_IO_URING
+// #define BOOST_ASIO_DISABLE_EPOLL
 #include "boost/asio.hpp"
 #ifndef TLS_DISABLED
 #include "boost/asio/ssl.hpp"
