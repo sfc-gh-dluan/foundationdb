@@ -6,6 +6,7 @@ set(FDBRPC_SRCS
   AsyncFileNonDurable.actor.h
   AsyncFileReadAhead.actor.h
   AsyncFileWinASIO.actor.h
+  AsyncFileBoostASIO.actor.h
   AsyncFileCached.actor.cpp
   AsyncFileNonDurable.actor.cpp
   AsyncFileWriteChecker.cpp
@@ -107,4 +108,17 @@ if(${COROUTINE_IMPL} STREQUAL libcoro)
   endif()
   target_link_libraries(fdbrpc PRIVATE coro)
   target_link_libraries(fdbrpc_sampling PRIVATE coro)
+endif()
+
+if(WITH_LIBURING)
+  find_package(uring)
+
+  target_include_directories(fdbrpc PRIVATE ${uring_INCLUDE_DIR})
+  target_link_libraries(fdbrpc PRIVATE ${uring_LIBRARIES})
+  target_compile_definitions(fdbrpc PRIVATE BOOST_ASIO_HAS_IO_URING=1)
+
+  target_include_directories(fdbrpc_sampling PRIVATE ${uring_INCLUDE_DIR})
+  target_link_libraries(fdbrpc_sampling PRIVATE ${uring_LIBRARIES})
+  target_compile_definitions(fdbrpc_sampling PRIVATE BOOST_ASIO_HAS_IO_URING=1)
+
 endif()
