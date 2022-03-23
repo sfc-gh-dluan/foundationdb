@@ -22,7 +22,7 @@
 
 #include <boost/version.hpp>
 
-// #if defined(__linux__) && defined(BOOST_ASIO_HAS_FILE)
+#if defined(__linux__) && defined(BOOST_ASIO_HAS_FILE)
 
 // When actually compiled (NO_INTELLISENSE), include the generated version of this file.  In intellisense use the source
 // version.
@@ -43,7 +43,6 @@
 #include "boost/asio/random_access_file.hpp"
 
 #include "flow/actorcompiler.h" // This must be the last #include.
-
 
 class AsyncFileBoostASIO final : public IAsyncFile, public ReferenceCounted<AsyncFileBoostASIO> {
 public:
@@ -106,7 +105,6 @@ public:
 				return io_error();
 			}
 		}
-
 		// struct stat buf;
 		// if (fstat(fd, &buf)) {
 		// 	TraceEvent("AsyncFileBoostASIOFStatError").detail("Fd", fd).detail("Filename", filename).GetLastError();
@@ -214,7 +212,6 @@ public:
 		// if (!SetEndOfFile(file.native_handle()))
 		// 	throw io_error();
 
-
 		return Void();
 	}
 	Future<Void> sync() override {
@@ -229,7 +226,15 @@ public:
 		// }
 
 		file.sync_all();
+		// auto fsync = AsyncFileEIO::async_fdatasync(fd);
 
+		// if (flags & OPEN_ATOMIC_WRITE_AND_CREATE) {
+		// 	flags &= ~OPEN_ATOMIC_WRITE_AND_CREATE;
+
+		// 	return AsyncFileEIO::waitAndAtomicRename(fsync, filename + ".part", filename);
+		// }
+
+		// return fsync;
 		return Void();
 	}
 	Future<int64_t> size() const override {
@@ -246,14 +251,87 @@ public:
 
 private:
 	boost::asio::random_access_file file;
-	int flags;
+	int fd, flags;
 	std::string filename;
 
 	AsyncFileBoostASIO(boost::asio::io_service& ios, int fd, int flags, std::string filename)
-	  : file(ios, fd), flags(flags), filename(filename) {}
+	  : file(ios, fd), fd(fd), flags(flags), filename(filename) {}
 };
 
+ACTOR Future<double> writeBlock(int i, Reference<IAsyncFile> f, void* buf) {
+
+	state double startTime = now();
+
+	wait(f->write(buf, 4096, i * 4096));
+
+	return now() - startTime;
+}
+
+TEST_CASE("/fdbrpc/AsyncFileBoostASIO/CallbackTest") {
+
+	state bool use_io_uring = params.getInt("use_io_uring").orDefault(1);
+	state int num_blocks = params.getInt("num_blocks").orDefault(1000);
+	state std::string file_path = params.get("file_path").orDefault("");
+
+	printf("use_io_uring: %d\n", use_io_uring);
+	printf("num_blocks: %d\n", num_blocks);
+	printf("file_path: %s\n", file_path.c_str());
+
+	ASSERT(!file_path.empty());
+
+	state Reference<IAsyncFile> f;
+	try {
+		if (use_io_uring) {
+
+			Reference<IAsyncFile> f_ = wait(AsyncFileBoostASIO::open(
+			    file_path,
+			    IAsyncFile::OPEN_UNBUFFERED | IAsyncFile::OPEN_READWRITE | IAsyncFile::OPEN_CREATE,
+			    0666,
+			    static_cast<boost::asio::io_service*>((void*)g_network->global(INetwork::enASIOService))));
+			f = f_;
+
+		} else {
+
+			Reference<IAsyncFile> f_ = wait(AsyncFileKAIO::open(
+			    file_path,
+			    IAsyncFile::OPEN_UNBUFFERED | IAsyncFile::OPEN_READWRITE | IAsyncFile::OPEN_CREATE,
+			    0666,
+			    static_cast<boost::asio::io_service*>((void*)g_network->global(INetwork::enASIOService))));
+			f = f_;
+		}
+
+		state void* buf = FastAllocator<4096>::allocate();
+
+		state std::vector<Future<double>> futures;
+		for (int i = 0; i < num_blocks; ++i) {
+			futures.push_back(writeBlock(i, f, buf));
+		}
+
+		FastAllocator<4096>::release(buf);
+
+		state double sum = 0.0;
+		state int i = 0;
+		for (; i < num_blocks; ++i) {
+			double time = wait(futures.at(i));
+			sum += time;
+		}
+
+		printf("avg: %f\n", sum / num_blocks);
+
+	} catch (Error& e) {
+		state Error err = e;
+		if (f) {
+			wait(AsyncFileEIO::deleteFile(f->getFilename(), true));
+		}
+
+		throw err;
+	}
+
+	wait(AsyncFileEIO::deleteFile(f->getFilename(), true));
+
+	return Void();
+}
 
 #include "flow/unactorcompiler.h"
 #endif
-// #endif
+#endif
