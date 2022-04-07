@@ -161,6 +161,7 @@ void FlowKnobs::initialize(Randomize randomize, IsSimulated isSimulated) {
 	init( IO_URING_FIXED_BUFFERS,                             false); //Use fixed buffers
 	init( IO_URING_BATCH,                                     false);
 	init( IO_URING_POLL,                                      false);
+	init( IO_URING_EVENTFD,                                      false);
 
 	//GenericActors
 	init( BUGGIFY_FLOW_LOCK_RELEASE_DELAY,                     1.0 );
