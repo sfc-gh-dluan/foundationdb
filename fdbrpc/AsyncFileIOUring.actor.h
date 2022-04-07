@@ -613,10 +613,10 @@ public:
 	}
 
 	static void launch() {
-#if IOUring_TRACING
+// #if IOUring_TRACING
 		if(ctx.outstanding + ctx.queue.size() + ctx.submitted)
 		  printf("Launch on %p. Outstanding %d enqueued %d %d submitted\n",&ctx,ctx.outstanding, ctx.queue.size(), ctx.submitted);  //submitted.load() if using atomic
-#endif
+// #endif
 		//We enter the loop if: 1) there's stuff to push and we can submit at least MIN_SUBMIT without overflowing MAX_OUTSTANDING
 		if (!(ctx.queue.size() && ctx.submitted < FLOW_KNOBS->MAX_OUTSTANDING - FLOW_KNOBS->MIN_SUBMIT)) return;
 		//W.r.t. KAIO, We don't enforce any min_submit. This reduces the variance in performance
@@ -666,9 +666,9 @@ public:
 						}
 					case UIO_CMD_PWRITE:
 						{
-#if IOUring_TRACING
+// #if IOUring_TRACING
 							printf("fd %d Writing %d bytes at offset %d\n",io->aio_fildes,io->nbytes, io->offset);
-#endif
+// #endif
 							struct iovec *iov= &io->iovec;
 							iov->iov_base=io->buf;
 							iov->iov_len=io->nbytes;
@@ -708,10 +708,10 @@ public:
 				//It is not clear how io_uring handles cqes that are prepared but not pushed
 				throw io_error();
 			}
-#if IOUring_TRACING
+// #if IOUring_TRACING
 			printf("io_uring_submit submitted %d items\n", rc);
 
-#endif
+// #endif
 
 
 			if(end-begin > FLOW_KNOBS->SLOW_LOOP_CUTOFF) {
@@ -1013,18 +1013,18 @@ private:
 		state int64_t to_consume;
 		state int r=0;
 		loop{
-			if(IOUring_TRACING){
+			// if(IOUring_TRACING){
 				printf("Waiting\n");
 				int64_t ev_r = wait( ev->read());
 				to_consume=ev_r;
 				printf("Waited %lu\n",ev_r);
 				wait(delay(0, TaskPriority::DiskIOComplete));
 				printf("Rescheduled\n");
-			}else{
-				int64_t ev_r = wait( ev->read());
-				to_consume=ev_r;
-				wait(delay(0, TaskPriority::DiskIOComplete));
-			}
+			// }else{
+			// 	int64_t ev_r = wait( ev->read());
+			// 	to_consume=ev_r;
+			// 	wait(delay(0, TaskPriority::DiskIOComplete));
+			// }
 
 			rc = io_uring_peek_batch_cqe(&ctx.ring, ctx.cqes_batch,to_consume);
 			if(rc<to_consume){
@@ -1041,14 +1041,16 @@ private:
 				if(ctx.ioTimeout > 0 && !AVOID_STALLS) {
 					ctx.removeFromRequestList(iob);
 				}
-				if(IOUring_TRACING)printf("Op result %d %s\n",cqe->res,strerror(-cqe->res));
+				// if(IOUring_TRACING)
+				printf("Op result %d %s\n",cqe->res,strerror(-cqe->res));
 				iob->setResult(cqe->res);
 				io_uring_cqe_seen(&ctx.ring, cqe);
 			}
 
 			if(1){
 
-				if(IOUring_TRACING)	printf("REACTOR POLLED  %d events \n",to_consume);
+				// if(IOUring_TRACING)
+					printf("REACTOR POLLED  %d events \n",to_consume);
 
 
 				{
@@ -1366,6 +1368,79 @@ TEST_CASE("/fdbrpc/AsyncFileIOUring/RequestList") {
 
 		wait(AsyncFileEIO::deleteFile(f->getFilename(), true));
 	}
+
+	return Void();
+}
+
+ACTOR Future<double> writeBlock(int i, Reference<IAsyncFile> f, void* buf) {
+
+	state double startTime = now();
+
+	wait(f->write(buf, 4096, i * 4096));
+
+	return now() - startTime;
+}
+
+TEST_CASE("/fdbrpc/AsyncFileIOUring/CallbackTest") {
+
+	state bool use_io_uring = params.getInt("use_io_uring").orDefault(1);
+	state int num_blocks = params.getInt("num_blocks").orDefault(1000);
+	state std::string file_path = params.get("file_path").orDefault("");
+
+	printf("use_io_uring: %d\n", use_io_uring);
+	printf("num_blocks: %d\n", num_blocks);
+	printf("file_path: %s\n", file_path.c_str());
+
+	ASSERT(!file_path.empty());
+
+	state Reference<IAsyncFile> f;
+	try {
+		if (use_io_uring) {
+
+			Reference<IAsyncFile> f_ = wait(AsyncFileIOUring::open(
+			    file_path,
+			    IAsyncFile::OPEN_UNBUFFERED | IAsyncFile::OPEN_UNCACHED | IAsyncFile::OPEN_READWRITE | IAsyncFile::OPEN_CREATE,
+			    0666));
+			f = f_;
+
+		} else {
+
+			Reference<IAsyncFile> f_ = wait(AsyncFileKAIO::open(
+			    file_path,
+			    IAsyncFile::OPEN_UNBUFFERED | IAsyncFile::OPEN_READWRITE | IAsyncFile::OPEN_CREATE,
+			    0666,
+			    static_cast<boost::asio::io_service*>((void*)g_network->global(INetwork::enASIOService))));
+			f = f_;
+		}
+
+		state void* buf = FastAllocator<4096>::allocate();
+
+		state std::vector<Future<double>> futures;
+		for (int i = 0; i < num_blocks; ++i) {
+			futures.push_back(writeBlock(i, f, buf));
+		}
+
+		FastAllocator<4096>::release(buf);
+
+		state double sum = 0.0;
+		state int i = 0;
+		for (; i < num_blocks; ++i) {
+			double time = wait(futures.at(i));
+			sum += time;
+		}
+
+		printf("avg: %f\n", sum / num_blocks);
+
+	} catch (Error& e) {
+		state Error err = e;
+		if (f) {
+			wait(AsyncFileEIO::deleteFile(f->getFilename(), true));
+		}
+
+		throw err;
+	}
+
+	wait(AsyncFileEIO::deleteFile(f->getFilename(), true));
 
 	return Void();
 }
