@@ -307,6 +307,8 @@ static int64_t getSizeCode(int i) {
 template <int Size>
 void* FastAllocator<Size>::allocate() {
 
+	return new uint8_t[Size];
+
 #if defined(USE_GPERFTOOLS) || defined(ADDRESS_SANITIZER)
 	// Some usages of FastAllocator require 4096 byte alignment.
 	return aligned_alloc(Size >= 4096 ? 4096 : alignof(void*), Size);
@@ -360,6 +362,10 @@ void* FastAllocator<Size>::allocate() {
 template <int Size>
 void FastAllocator<Size>::release(void* ptr) {
 
+	delete[] ptr;
+
+#if 0
+
 #if defined(USE_GPERFTOOLS) || defined(ADDRESS_SANITIZER)
 	return aligned_free(ptr);
 #endif
@@ -399,6 +405,8 @@ void FastAllocator<Size>::release(void* ptr) {
 #endif
 #if defined(ALLOC_INSTRUMENTATION) || defined(ALLOC_INSTRUMENTATION_STDOUT)
 	recordDeallocation(ptr);
+#endif
+
 #endif
 }
 
