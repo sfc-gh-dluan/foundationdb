@@ -78,6 +78,7 @@ ACTOR Future<Void> someFuture(Future<int> ready) {
 	}
 }
 
+#define ALLOW_CORO
 ACTOR Future<Void> promiseDemo() {
 	state Promise<int> promise;
 	state Future<Void> f = someFuture(promise.getFuture());
@@ -86,6 +87,7 @@ ACTOR Future<Void> promiseDemo() {
 	wait(f);
 	return Void();
 }
+#undef ALLOW_CORO
 
 ACTOR Future<Void> eventLoop(AsyncTrigger* trigger) {
 	loop choose {
@@ -98,6 +100,8 @@ ACTOR Future<Void> eventLoop(AsyncTrigger* trigger) {
 	}
 }
 
+
+#define ALLOW_CORO
 ACTOR Future<Void> triggerDemo() {
 	state int runs = 1;
 	state AsyncTrigger trigger;
@@ -110,6 +114,7 @@ ACTOR Future<Void> triggerDemo() {
 	std::cout << "Done.";
 	return Void();
 }
+#undef ALLOW_CORO
 
 struct EchoServerInterface {
 	constexpr static FileIdentifier file_identifier = 3152015;

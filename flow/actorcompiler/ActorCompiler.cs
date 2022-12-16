@@ -1423,12 +1423,31 @@ namespace actorcompiler
 
         public void Write(TextWriter writer)
         {
-            if (actor.parameters.Length > 0) {
-                throw new Error(actor.SourceLine, "Actor parameter not supported yet");
+            
+            // if (actor.parameters.Length > 0) {
+            //     throw new Error(actor.SourceLine, "Actor parameter not supported yet");
+            // }
+            writer.Write("Future<{0}> {1}(", actor.returnType, actor.name);
+
+            // Write Function Parameters
+            for (int i = 0; i < actor.parameters.Length; i++)
+            {
+                if (i != 0){
+                    writer.Write(",");
+                }
+                writer.Write("{0} {1}_", actor.parameters[i].type, actor.parameters[i].name);
             }
-            writer.WriteLine("Future<{0}> {1}() {{", actor.returnType, actor.name);
+
+            writer.WriteLine(") {");
+            for (int i = 0; i < actor.parameters.Length; i++)
+            {
+                writer.WriteLine("{0} {1} = std::move({1}_);", actor.parameters[i].type, actor.parameters[i].name);
+            }
+
             Compile(actor.body, new CoroContext(writer));
             writer.WriteLine("}");
+
+            Console.WriteLine("\tCompiled COROUTINE {0} (line {1})", actor.name, actor.SourceLine);
         }
 
         void WriteIndent(CoroContext ctx)
@@ -1531,6 +1550,24 @@ namespace actorcompiler
         {
             WriteIndent(ctx);
             ctx.writer.WriteLine(stmt.code);
+        }
+
+        void CompileStatement(ReturnStatement stmt, CoroContext ctx){
+            WriteIndent(ctx);
+            ctx.writer.WriteLine("co_return {0};", stmt.expression);
+        }
+
+        void CompileStatement(WhileStatement stmt, CoroContext ctx)
+        {
+            // Compile while (x) { y } as for(;x;) { y }
+            var equivalent = new ForStatement
+            {
+                condExpression = stmt.expression,
+                body = stmt.body,
+                FirstSourceLine = stmt.FirstSourceLine,
+            };
+
+            CompileStatement(equivalent, ctx);
         }
     }
 }
