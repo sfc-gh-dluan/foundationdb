@@ -1421,12 +1421,27 @@ namespace actorcompiler
             this.actor = actor;
         }
 
+        void WriteTemplate(TextWriter writer, params VarDeclaration[] extraParameters)
+        {
+            var formals = (actor.templateFormals!=null ? actor.templateFormals.AsEnumerable() : Enumerable.Empty<VarDeclaration>())
+                .Concat(extraParameters)
+                .ToArray();
+
+            if (formals.Length==0) return;
+            // LineNumber(writer, actor.SourceLine);
+            writer.WriteLine("template <{0}>",
+                string.Join(", ", formals.Select(
+                    p => string.Format("{0} {1}", p.type, p.name)
+                        ).ToArray()));
+        }
+
         public void Write(TextWriter writer)
         {
             
             // if (actor.parameters.Length > 0) {
             //     throw new Error(actor.SourceLine, "Actor parameter not supported yet");
             // }
+            WriteTemplate(writer);
             writer.Write("Future<{0}> {1}(", actor.returnType, actor.name);
 
             // Write Function Parameters
@@ -1435,14 +1450,15 @@ namespace actorcompiler
                 if (i != 0){
                     writer.Write(",");
                 }
-                writer.Write("{0} {1}_", actor.parameters[i].type, actor.parameters[i].name);
+                // writer.Write("{0} {1}_", actor.parameters[i].type, actor.parameters[i].name);
+                writer.Write("{0} {1}", actor.parameters[i].type, actor.parameters[i].name);
             }
 
             writer.WriteLine(") {");
-            for (int i = 0; i < actor.parameters.Length; i++)
-            {
-                writer.WriteLine("{0} {1} = std::move({1}_);", actor.parameters[i].type, actor.parameters[i].name);
-            }
+            // for (int i = 0; i < actor.parameters.Length; i++)
+            // {
+            //     writer.WriteLine("{0} {1} = std::move({1}_);", actor.parameters[i].type, actor.parameters[i].name);
+            // }
 
             Compile(actor.body, new CoroContext(writer));
             writer.WriteLine("}");
@@ -1593,6 +1609,24 @@ namespace actorcompiler
                 ctx.writer.WriteLine("}");
             }
 
+        }
+
+        void CompileStatement(BreakStatement stmt, CoroContext ctx)
+        {
+            WriteIndent(ctx);
+            ctx.writer.WriteLine("break;");
+        }
+
+        void CompileStatement(ContinueStatement stmt, CoroContext ctx)
+        {
+            WriteIndent(ctx);
+            ctx.writer.WriteLine("continue;");
+        }
+
+        void CompileStatement(ThrowStatement stmt, CoroContext ctx)
+        {
+            WriteIndent(ctx);
+            ctx.writer.WriteLine("throw {0};", stmt.expression);
         }
     }
 }
