@@ -1569,5 +1569,30 @@ namespace actorcompiler
 
             CompileStatement(equivalent, ctx);
         }
+
+
+        void CompileStatement(TryStatement stmt, CoroContext ctx)
+        {   
+            WriteIndent(ctx);
+            ctx.writer.WriteLine("try {");
+            ctx.indent++;
+            CompileStatement(stmt.tryBody, ctx);
+            ctx.indent--;
+            WriteIndent(ctx);
+            ctx.writer.WriteLine("}");
+
+            foreach (var c in stmt.catches){
+                WriteIndent(ctx);
+                ctx.writer.WriteLine("catch( {0} ) {{", c.expression);
+                
+                ctx.indent++;
+                CompileStatement(c.body, ctx);
+                ctx.indent--;
+
+                WriteIndent(ctx);
+                ctx.writer.WriteLine("}");
+            }
+
+        }
     }
 }
