@@ -18,9 +18,15 @@
  * limitations under the License.
  */
 
+#include "flow/Error.h"
 #include "flow/flow.h"
 #include "flow/UnitTest.h"
+#include "flow/cpp20coro.h"
 #include "flow/actorcompiler.h" // This must be the last #include.
+#include "flow/genericactors.actor.h"
+#include <ostream>
+#include <sstream>
+#include <string>
 
 ACTOR Future<bool> allTrue(std::vector<Future<bool>> all) {
 	state int i = 0;
@@ -58,9 +64,7 @@ ACTOR Future<Void> timeoutWarningCollector(FutureStream<Void> input, double logD
 	state uint64_t counter = 0;
 	state Future<Void> end = delay(logDelay);
 	loop choose {
-		when(waitNext(input)) {
-			counter++;
-		}
+		when(waitNext(input)) { counter++; }
 		when(wait(end)) {
 			if (counter)
 				TraceEvent(SevWarn, context, id).detail("LateProcessCount", counter).detail("LoggingDelay", logDelay);
@@ -99,12 +103,8 @@ ACTOR Future<bool> quorumEqualsTrue(std::vector<Future<bool>> futures, int requi
 	}
 
 	choose {
-		when(wait(quorum(true_futures, required))) {
-			return true;
-		}
-		when(wait(quorum(false_futures, futures.size() - required + 1))) {
-			return false;
-		}
+		when(wait(quorum(true_futures, required))) { return true; }
+		when(wait(quorum(false_futures, futures.size() - required + 1))) { return false; }
 	}
 }
 
@@ -127,9 +127,7 @@ ACTOR Future<bool> shortCircuitAny(std::vector<Future<bool>> f) {
 			}
 			return false;
 		}
-		when(wait(waitForAny(sc))) {
-			return true;
-		}
+		when(wait(waitForAny(sc))) { return true; }
 	}
 }
 
@@ -245,6 +243,195 @@ TEST_CASE("/flow/genericactors/WaitForMost") {
 			ASSERT_EQ(e.code(), error_code_operation_failed);
 		}
 	}
+	return Void();
+}
+
+template <class T>
+Future<T> timeoutCoro(Future<T> what, double time, T timedoutValue, TaskPriority taskID = TaskPriority::DefaultDelay) {
+	Future<Void> end = delay(time, taskID);
+
+	if (what.isReady()) {
+		co_return what.get();
+	}
+
+	co_await(ready(what) || end);
+
+	// std::cout << "  co_awaited " << what.isReady() << " " << end.isReady() << std::endl;
+
+	if (what.isReady()) {
+		// std::cout << "  what is ready " << what.isError() << (what.isError() ? what.getError().what() : "")
+		//           << std::endl;
+		co_return what.get();
+	} else {
+		co_return timedoutValue;
+	}
+}
+
+ACTOR template <class T>
+Future<T> timeoutFlow(Future<T> what, double time, T timedoutValue, TaskPriority taskID = TaskPriority::DefaultDelay) {
+	Future<Void> end = delay(time, taskID);
+
+	choose {
+		when(T t = wait(what)) { return t; }
+		when(wait(end)) { return timedoutValue; }
+	}
+}
+
+ACTOR Future<Void> long_delay() {
+	wait(delay(1000));
+	return Void();
+}
+
+TEST_CASE("flow/coroutine/timeout") {
+	// Ready future
+	state Future<int> f1 = Future<int>(1);
+	int v = wait(timeoutFlow(f1, 1, -1));
+	ASSERT(v == 1);
+
+	// future timed out
+	state Promise<int> p;
+	state Future<int> f2 = timeoutFlow(p.getFuture(), 1, -1);
+	wait(delay(2));
+	int v2 = wait(f2);
+	ASSERT(v2 == -1);
+
+	// future become ready
+	state Promise<int> p2;
+	Future<int> f3 = timeoutCoro(p2.getFuture(), 1, -1);
+	// p2.send(1);
+	p2.sendError(io_error());
+	try {
+		int v3 = wait(f3);
+	} catch (Error& e) {
+		std::cout << e.what() << std::endl;
+	}
+	// ASSERT(v3 == 1);
+
+	// Error future
+	state Future<int> f4 = Future<int>(io_error());
+	state Future<int> f5 = timeoutFlow(f4, 1, -1);
+	wait(ready(f5));
+	ASSERT(f5.isReady() && f5.isError() && f5.getError().code() == error_code_io_error);
+
+	// Cancelled future
+	state Future<Void> f6 = long_delay();
+	state Future<Void> f7 = timeoutFlow(f6, 1, Void());
+	f6.cancel();
+	wait(ready(f7));
+	ASSERT(f7.isReady() && f7.isError() && f7.getError().code() == error_code_actor_cancelled);
+
+	return Void();
+}
+
+struct LifetimeLogger {
+	LifetimeLogger(std::ostream& ss, int id) : ss(ss), id(id) { ss << "LifetimeLogger(" << id << "). "; }
+	~LifetimeLogger() { ss << "~LifetimeLogger(" << id << "). "; }
+
+	std::ostream& ss;
+	int id;
+};
+
+template <typename T>
+Future<Void> simple_await_test(std::stringstream& ss, Future<T> f) {
+	ss << "start. ";
+
+	LifetimeLogger ll1(ss, 0);
+
+	co_await(f);
+	ss << "wait returned. ";
+
+	LifetimeLogger ll2(ss, 1);
+
+	co_return Void();
+	ss << "after co_return. ";
+}
+
+Future<Void> actor_cancel_test(std::stringstream& ss) {
+	ss << "start. ";
+
+	LifetimeLogger ll(ss, 0);
+
+	try {
+		co_await(delay(100));
+	} catch (Error& e) {
+		ss << "error: " << e.what() << ". ";
+	}
+
+	ss << "wait returned. ";
+
+	co_return Void();
+	ss << "after co_return. ";
+}
+
+
+Future<Void> cancel_actor(Future<Void>&& f, int d) {
+	Future<Void> fc = std::move(f);
+
+	co_await(delay(d) || fc);
+	std::cout << "after delay" << std::endl;
+
+	co_return Void();
+}
+
+Future<Void> actor_throw_test(std::stringstream& ss) {
+	ss << "start. ";
+
+	LifetimeLogger ll(ss, 0);
+
+	throw io_error();
+
+	ss << "after throw. ";
+	co_return Void();
+	ss << "after co_return. ";
+}
+
+TEST_CASE("flow/coroutine/actor") {
+
+	{
+		state std::stringstream ss1;
+		try {
+			wait(simple_await_test(ss1, delay(1)));
+		} catch (Error& e) {
+			ss1 << "error: " << e.what() << ". ";
+		}
+		std::cout << ss1.str() << std::endl;
+		ASSERT(ss1.str() == "start. LifetimeLogger(0). wait returned. LifetimeLogger(1). ~LifetimeLogger(1). "
+		                    "~LifetimeLogger(0). ");
+	}
+
+	{
+		state std::stringstream ss2;
+		try {
+			wait(simple_await_test(ss2, Future<int>(io_error())));
+		} catch (Error& e) {
+			ss2 << "error: " << e.what() << ". ";
+		}
+		std::cout << ss2.str() << std::endl;
+		ASSERT(ss2.str() == "start. LifetimeLogger(0). ~LifetimeLogger(0). error: Disk i/o operation failed. ");
+	}
+
+	{
+		state std::stringstream ss3;
+		{
+			Future<Void> f = actor_cancel_test(ss3);
+			wait(delay(1));
+		}
+		std::cout << ss3.str() << std::endl;
+		ASSERT(ss3.str() == "start. LifetimeLogger(0). error: Asynchronous operation cancelled. wait returned. "
+		                    "~LifetimeLogger(0). ");
+	}
+
+	{
+		state std::stringstream ss4;
+		try {
+			wait(actor_throw_test(ss4));
+		} catch (Error& e) {
+			ss4 << "error: " << e.what() << ". ";
+		}
+		std::cout << ss4.str() << std::endl;
+		ASSERT(ss4.str() == "start. LifetimeLogger(0). ~LifetimeLogger(0). error: Disk i/o operation failed. ");
+	}
+
 	return Void();
 }
 
